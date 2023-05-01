@@ -163,7 +163,6 @@ driver/
 covers/
 driver_profile/
 geckodriver.log
-books_to_search.csv
 books.csv
 items.csv
 .vscode
