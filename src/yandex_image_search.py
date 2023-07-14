@@ -10,6 +10,7 @@ from typing import List, Tuple, Dict
 import re
 import time
 import math
+import numpy as np
 
 
 class element_has_children_nodes(object):
@@ -66,10 +67,17 @@ class ImageSearcher:
             executable_path=driver_path, options=firefox_options)
 
     def __get_image_input(self) -> WebElement:
-        return WebDriverWait(self.__browser, 15).until(
-            EC.presence_of_element_located(
-                (By.XPATH, '//input[@accept="image/*"]'))
-        )
+        try:
+            return WebDriverWait(self.__browser, 30).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//input[@accept="image/*"]'))
+            )
+        except:
+            self.__browser.refresh()
+            return WebDriverWait(self.__browser, 30).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//input[@accept="image/*"]'))
+            )
 
     def __suggested_sites(self) -> List[WebElement]:
         sites: WebElement = WebDriverWait(self.__browser, 15).until(
@@ -104,7 +112,7 @@ class ImageSearcher:
         self.__browser.execute_script(
             "arguments[0].scrollIntoView();", element)
 
-    def __deduct_book_name(self, items_orig: List[Tuple[str, str]]) -> str:
+    def __deduct_book_name(self, items_orig: List[Tuple[str, str]]) -> Tuple[str, str]:
         '''
         items - titles, additional info of sites
         '''
@@ -115,168 +123,177 @@ class ImageSearcher:
         additional_info = [list(filter(lambda string: string != '', re.sub(
             "[^\w\d]", ' ', item[1]).lower().split(' '))) for item in items_orig]
 
-        for index, info in enumerate(additional_info):
-            for word in info:
-                if word not in items[index]:
-                    items[index].append(word)
+        items = items + additional_info
 
-        key_words: Dict[str, KeyWord] = {}
+        key_words: Dict[str, int] = {}
 
-        for sentence, item in enumerate(items):
-            for index, word in enumerate(item):
+        for words in items:
+            for word in words:
                 try:
-                    key_words[word].found(index, sentence)
+                    key_words[word] += 1
                 except KeyError:
-                    key_words[word] = KeyWord(index, sentence)
+                    key_words[word] = 0
 
-        most_used_words: List[Tuple[str, KeyWord]] = []
+        graph_labels = list(key_words.keys())
+        graph = [[0]*len(graph_labels) for _ in range(len(graph_labels))]
+        graph = np.array(graph, dtype=np.uint32)
 
-        part = len(items) / 2
-        for word, data in key_words.items():
-            if data.occurances > part:
-                most_used_words.append((word, data))
+        enumerated_labels: Dict[str, int] = {}
+        for index, label in enumerate(graph_labels):
+            enumerated_labels[label] = index
 
-        if len(most_used_words) == 0:
+        for sentence in items:
+            for first, second in zip(sentence, sentence[1:]):
+                first_index = enumerated_labels[first]
+                second_index = enumerated_labels[second]
+                graph[first_index][second_index] += 1
+
+        paths: Dict[Tuple[List[int], int]] = []
+        visited_nodes: Dict[int, bool] = {}
+        for row_index, row in enumerate(graph):
+            if visited_nodes.get(row_index, False):
+                continue
+
+            visited_nodes[row_index] = True
+            path = [row_index]
+            max_value = row.max()
+            if max_value > 0:
+                while True:
+                    row_index = np.argmax(row)
+                    row = graph[row_index]
+                    path.append(row_index)
+
+                    if visited_nodes.get(row_index, False) or row.max() != max_value:
+                        break
+
+                    visited_nodes[row_index] = True
+
+            paths.append((path, max_value))
+
+        phrases: List[List[str]] = []
+
+        largest_value: int = -1
+        largest_index: int = -1
+
+        second_largest_value: int = -1
+        second_largest_index: int = -1
+
+        for index, data in enumerate(paths):
+            path, value = data
+
+            phrases.append([graph_labels[index] for index in path])
+
+            if value > largest_value:
+                second_largest_value = largest_value
+                second_largest_index = largest_index
+
+                largest_value = value
+                largest_index = index
+            elif value > second_largest_value or value == largest_value:
+                second_largest_value = value
+                second_largest_index = index
+
+        if len(phrases) == 0:
             return False
-
-        most_used_words.sort(key=lambda word: min(
-            word[1].indexes, key=word[1].indexes.get))
-
-        # calculate average and average deviation
-        sum_occurances = 0
-        for most_used_word in most_used_words:
-            sum_occurances += most_used_word[1].occurances
-
-        average_occurance = sum_occurances / len(most_used_word)
-
-        sum_deviations = 0
-        for most_used_word in most_used_words:
-            sum_deviations += (most_used_word[1].occurances -
-                               average_occurance)**2
-
-        average_deviation = math.sqrt(
-            sum_deviations/len(most_used_word)) * 1.5
-
-        # filter deviating words
-        most_used_words = list(filter(
-            lambda word: abs(word[1].occurances-average_occurance) <= average_deviation, most_used_words))
-
-        # calculate collisions in same sentences
-        graph = [[0]*len(most_used_words) for _ in range(len(most_used_words))]
-
-        for index1, word1 in enumerate(most_used_words):
-            for index2, word2 in enumerate(most_used_words):
-                if index1 == index2:
-                    continue
-
-                for sentence in word1[1].sentences.keys():
-                    if word2[1].sentences.get(sentence, False):
-                        graph[index1][index2] += 1
-
-        # average deviation of collisions
-        collisions = [0]*len(most_used_words)
-        for index1, line in enumerate(graph):
-            for index2, collision in enumerate(line):
-                collisions[index2] += collision
-
-        sum_collisions = sum(collisions)
-        average_collision = sum_collisions / len(collisions)
-
-        sum_deviations = 0
-        for collision in collisions:
-            sum_deviations += (collision -
-                               average_collision)**2
-
-        average_deviation = math.sqrt(sum_deviations/len(collisions))*1.5
 
         to_return = []
-        for index, collision in enumerate(collisions):
-            if abs(collision-average_collision) <= average_deviation:
-                to_return.append(most_used_words[index][0])
+        to_return.append(phrases[largest_index])
+        if second_largest_value > -1:
+            to_return.append(phrases[second_largest_index])
+        if len(phrases) == 1:
+            return (' '.join(to_return[0]), False)
 
-        # TODO: based on a graph place words correctly
-
-        # post processing
-        end_index = len(to_return)
-        for i in range(end_index, -1, -1):
-            end_index = i
-            if i == 0:
-                break
-            if to_return[i-1] not in WORDS_TO_REMOVE:
-                break
-
-        start_index = 0
-        for index, word in enumerate(to_return):
-            start_index = index
-            if word not in WORDS_TO_REMOVE:
-                break
-
-        to_return = to_return[start_index:end_index]
-
-        if len(to_return) == 0:
-            return False
-
-        return " ".join(to_return)
+        return (' '.join(to_return[0]), ' '.join(to_return[1]))
 
     def __get_tags(self) -> List[str]:
-        tags_parent: WebElement = WebDriverWait(self.__browser, 15).until(
-            EC.presence_of_element_located(
-                (By.XPATH,
-                 '//section[@class="CbirSection CbirSection_decorated CbirTags"]')
+        try:
+            tags_parent: WebElement = WebDriverWait(self.__browser, 30).until(
+                EC.presence_of_element_located(
+                    (By.XPATH,
+                     '//section[@class="CbirSection CbirSection_decorated CbirTags"]')
+                )
             )
-        )
+        except:
+            logging.warning(f"Couldn't find tags for an image")
+            return []
 
         tags = tags_parent.find_elements(By.XPATH, './/a')
         return [tag.text for tag in tags]
 
+    def __incorrect_file_input(self) -> bool:
+        try:
+            panel: WebElement = WebDriverWait(self.__browser, 4, poll_frequency=0.1).until(
+                EC.presence_of_element_located(
+                    (By.XPATH,
+                     "//div[contains(concat(' ', normalize-space(@class), ' '), ' CbirUploadErrorNotify ')]")
+                )
+            )
+            return True
+        except Exception as e:
+            return False
+
+    def __detect_suggested_sites(self) -> bool:
+        try:
+            WebDriverWait(self.__browser, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//ul[@class="CbirSites-Items"]')
+                )
+            )
+            return True
+        except:
+            return False
+
     def search_image(self, image_path: str) -> Tuple[str, str]:
         self.__get_main_page()
 
+        time.sleep(0.5)
+
         image_input = self.__get_image_input()
 
-        try:
-            image_input.send_keys(os.path.abspath(image_path))
-        except Exception as e:
-            logging.error(f"Error sending keys, error: {e}", exc_info=True)
-            raise e
+        while True:
+            try:
+                image_input.send_keys(os.path.abspath(image_path))
+            except Exception as e:
+                logging.error(f"Error sending keys, error: {e}", exc_info=True)
+                raise e
+
+            # if self.__incorrect_file_input():
+            #     logging.warning(
+            #         f"Browser returned 'Incorrect format' for image: {image_path}")
+            #     logging.warning(f"Retrying image search")
+            # else:
+            #     break
+
+            if self.__detect_suggested_sites():
+                break
 
         tags = self.__get_tags()
 
-        book_name_by_tags = tags[0]
+        book_name_by_tags = False
+        if len(tags) > 0:
+            book_name_by_tags = tags[0]
 
         sites = self.__suggested_sites()
         self.__scroll_to_element(sites[-1])
         time.sleep(0.5)
         sites = self.__suggested_sites()
-        self.__scroll_to_element(sites[-1])
-        time.sleep(0.5)
-        sites = self.__suggested_sites()
-        self.__scroll_to_element(sites[-1])
-        time.sleep(0.5)
-        sites = self.__suggested_sites()
+        # self.__scroll_to_element(sites[-1])
+        # time.sleep(0.5)
+        # sites = self.__suggested_sites()
+        # self.__scroll_to_element(sites[-1])
+        # time.sleep(0.5)
+        # sites = self.__suggested_sites()
 
         items = [self.__extract_item_info(site) for site in sites]
 
-        book_name_by_deduction = None
-        if len(items) > 10:
-            # items = items[:10]
-            book_name_by_deduction = self.__deduct_book_name(
-                [(item[1], "") for item in items])
+        book_names_by_deduction = self.__deduct_book_name(
+            [(item[1], item[2]) for item in items])
 
-            for i in [10, 5]:
-                if not book_name_by_deduction:
-                    items = items[:i]
-                    book_name_by_deduction = self.__deduct_book_name(
-                        [(item[1], item[2]) for item in items])
-                else:
-                    break
-        else:
-            book_name_by_deduction = self.__deduct_book_name(
-                [(item[1], item[2]) for item in items])
-
-        # print(book_name_by_tags, '|', book_name_by_deduction)
-
-        return (book_name_by_tags, book_name_by_deduction)
+        return (book_name_by_tags, book_names_by_deduction)
 
     def quit(self):
         self.__browser.quit()
+
+    def __del__(self):
+        return
+        self.quit()

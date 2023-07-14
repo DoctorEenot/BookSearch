@@ -2,22 +2,45 @@ from .book import Book
 from bs4 import BeautifulSoup
 import requests
 from typing import List
+from .search_engine import SearchEngine
+import urllib
+import time
 
 BASE_URL = "https://www.labirint.ru"
 
 
-class Labirint:
+class Labirint(SearchEngine):
 
-    def search_book(name: str, cover: str) -> List[Book] | None:
+    def search_book(name: str, cover: str, max_per_name: int) -> List[Book] | None:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36',
+            'Connection': 'keep-alive'
+        }
 
-        response = requests.get(
-            f"{BASE_URL}/search/{name}/?stype=0", headers=headers)
-        if response.status_code != 200:
+        url = f"{BASE_URL}/search/{name}/"
+
+        page_raw = ''
+        while True:
+            try:
+                response = requests.get(
+                    url, headers=headers, stream=True)
+
+                page_raw = response.text
+                break
+            except:
+                # break
+                pass
+        # try:
+        #     for data in response.iter_content(chunk_size=1024):
+        #         page_raw += data
+        # except:
+        #     pass
+        # page_raw = page_raw.decode('utf-8')
+
+        if response.status_code != 200 or len(page_raw) == 0:
             raise Exception("Response status is not 200")
 
-        page = BeautifulSoup(response.text, 'html.parser')
+        page = BeautifulSoup(page_raw, 'html.parser')
 
         search_error = page.find('div', class_='search-error')
         if search_error is not None:
@@ -33,7 +56,11 @@ class Labirint:
 
         to_return = []
 
-        for product_tag in products[:3]:
+        headers['Referer'] = urllib.parse.quote(url)
+
+        for product_tag in products:
+            if len(to_return) == max_per_name:
+                break
             product = product_tag.findChild("div", class_="product")
 
             genre = product['data-maingenre-name']
@@ -49,13 +76,44 @@ class Labirint:
             book_name = product.findChild(
                 'div', class_="product-cover").findChild('a', class_="product-title-link").text.replace('\n', '').strip()
 
+            if not Labirint.verify_name(name, book_name):
+                continue
+
             book_dir = f"{BASE_URL}/{product['data-dir']}/{product['data-product-id']}"
 
-            response = requests.get(book_dir, headers=headers)
-            if response.status_code != 200:
+            page_raw = ''
+            while True:
+                try:
+                    response = requests.get(
+                        book_dir, headers=headers, stream=True)
+
+                    page_raw = response.text
+                    break
+                except:
+                    # break
+                    pass
+
+            if response.status_code != 200 or len(page_raw) == 0:
                 raise Exception("Response status is not 200")
 
-            page = BeautifulSoup(response.text, 'html.parser')
+            # for data in response.iter_content(chunk_size=1024):
+            #     pass
+
+            page = BeautifulSoup(page_raw, 'html.parser')
+
+            publisher_tag = page.find("div", attrs={"class": "publisher"})
+            year = 0
+            if publisher_tag != None:
+                children = list(publisher_tag.children)
+                if len(children) != 0:
+                    year_raw = children[-1].text
+                    if 'г.' in year_raw:
+                        chunks = year_raw.split(' ')
+                        for chunk in chunks:
+                            try:
+                                year = int(chunk)
+                            except:
+                                pass
 
             about = page.find(
                 "div", attrs={"id": "fullannotation"})
@@ -64,8 +122,26 @@ class Labirint:
                 about = page.find(
                     "div", attrs={"id": "product-about"})
 
-            about = about.findChild("p").text.replace('\n', '').strip()
+            if about is None:
+                about = ""
+            else:
+                about = about.findChild("p")
+                if about == None:
+                    about = ""
+                else:
+                    about = about.text.replace('\n', '').strip()
 
-            to_return.append(Book(author, book_name, 0, about, genre, cover))
+            price_tag = page.find(
+                "span", attrs={"class": "buying-pricenew-val-number"}
+            )
+            price = 0
+            if price_tag is not None:
+                price = int(price_tag.text)
+
+            if not Labirint.verify_name(name, book_name):
+                continue
+
+            to_return.append(
+                Book(author, book_name, year, about, genre, cover, price))
 
         return to_return

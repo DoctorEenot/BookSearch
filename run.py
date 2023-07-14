@@ -1,10 +1,11 @@
-from src.main import main, setup_logger
+from src.main import main, setup_logger, Labirint
 import logging
 from dotenv import load_dotenv
 import os
 
 
 if __name__ == "__main__":
+
     load_dotenv()
     setup_logger(os.getenv("LOG_DIR"))
 
