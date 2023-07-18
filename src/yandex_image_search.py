@@ -208,17 +208,25 @@ class ImageSearcher:
     def __get_tags(self) -> List[str]:
         try:
             tags_parent: WebElement = WebDriverWait(self.__browser, 30).until(
-                EC.presence_of_element_located(
-                    (By.XPATH,
-                     '//section[@class="CbirSection CbirSection_decorated CbirTags"]')
-                )
+                EC.any_of(
+                    EC.presence_of_element_located(
+                        (By.XPATH,
+                         '//section[@class="CbirSection CbirSection_decorated CbirTags"]')
+                    ), EC.presence_of_element_located(
+                        (By.XPATH,
+                         '//div[@class="CbirOcr-Text"]')
+                    ))
             )
-        except:
+        except Exception as e:
             logging.warning(f"Couldn't find tags for an image")
             return []
 
         tags = tags_parent.find_elements(By.XPATH, './/a')
-        return [tag.text for tag in tags]
+        if len(tags) == 0:
+            # located TextInImage
+            tags = [tags_parent]
+
+        return [tag.text.replace('\n', ' ') for tag in tags]
 
     def __incorrect_file_input(self) -> bool:
         try:
