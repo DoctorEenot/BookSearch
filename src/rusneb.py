@@ -61,18 +61,17 @@ class RusNeb(SearchEngine):
     def __out_book(books):
         datas = []
         for x in range(len(books)):
-            data = []
             if books[x][1] is None:
-                data.append("")
+                author = ""
             else:
-                data.append(str(books[x][1]))
+                author = str(books[x][1])
             if books[x][2] is None:
-                data.append("")
+                name = ""
             else:
-                data.append(str(books[x][2]))
+                name = str(books[x][2])
             if books[x][3] is None:
-                data.append("")
+                year = 0
             else:
-                data.append(int(books[x][3]))
-            datas.append(Book(data[0], data[1], data[2], "", "", "", 2000))
+                year = int(books[x][3])
+            datas.append(Book(author, name, year, "", "", "", 2000))
         return datas
