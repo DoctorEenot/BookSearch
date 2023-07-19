@@ -8,7 +8,7 @@ from fake_headers import Headers
 BASE_URL = "https://rusneb.ru/search/?q={}"
 
 
-class rusneb(SearchEngine):
+class RusNeb(SearchEngine):
     def search_book(name: str, cover: str, max_per_name: int) -> List[Book] | None:
         s = rq.Session()
         header = Headers(browser="chrome",headers=True).generate()
@@ -31,9 +31,10 @@ class rusneb(SearchEngine):
                             url = data.find("p").find("a", href=True)['href']
                             if not url == "javascript:void(0);":
                                 books.append(url)
+                            id += 1
                         except:
                             pass
-        return rusneb.__get_data(s, books, header)
+        return RusNeb.__out_book(RusNeb.__get_data(s, books, header))
     def __get_data(session, urls, header):
         books = {}
         for url in urls:
@@ -57,3 +58,21 @@ class rusneb(SearchEngine):
                 date_book = None
             books[len(books)] = [url_base, name_book, autor_book, date_book]
         return books
+    def __out_book(books):
+        datas = []
+        for x in range(len(books)):
+            data = []
+            if books[x][1] is None:
+                data.append("")
+            else:
+                data.append(str(books[x][1]))
+            if books[x][2] is None:
+                data.append("")
+            else:
+                data.append(str(books[x][2]))
+            if books[x][3] is None:
+                data.append("")
+            else:
+                data.append(int(books[x][3]))
+            datas.append(Book(data[0], data[1], data[2], "", "", "", 2000))
+        return datas
