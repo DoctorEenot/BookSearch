@@ -1,5 +1,5 @@
 from .search_engine import SearchEngine
-from typing import List, Tuple, Dict
+from typing import List
 from .book import Book
 import requests as rq
 from bs4 import BeautifulSoup
@@ -34,9 +34,9 @@ class RusNeb(SearchEngine):
                             id += 1
                         except:
                             pass
-        return RusNeb.__out_book(RusNeb.__get_data(s, books, header))
+        return RusNeb.__get_data(s, books, header)
     def __get_data(session, urls, header):
-        books = {}
+        books = []
         for url in urls:
             url_base = "https://rusneb.ru" + url
             res = session.get(url_base, headers=header)
@@ -45,33 +45,16 @@ class RusNeb(SearchEngine):
                     f"Response status for main page is not 200, but {res.status_code}")
             page = BeautifulSoup(res.text, 'html.parser')
             try:
-                name_book = " ".join(page.find('div', class_='title title--work').text.split())
+                author = str(" ".join(page.find('div', class_='title title--work').text.split()))
             except:
-                name_book = None
-            try:
-                autor_book = page.find("div", class_="cards__author").find("a").text
-            except: 
-                autor_book = None
-            try:
-                date_book = page.find("span", itemprop="datePublished").text
-            except:
-                date_book = None
-            books[len(books)] = [url_base, name_book, autor_book, date_book]
-        return books
-    def __out_book(books):
-        datas = []
-        for x in range(len(books)):
-            if books[x][1] is None:
                 author = ""
-            else:
-                author = str(books[x][1])
-            if books[x][2] is None:
+            try:
+                name = str(page.find("div", class_="cards__author").find("a").text)
+            except: 
                 name = ""
-            else:
-                name = str(books[x][2])
-            if books[x][3] is None:
+            try:
+                year = int(page.find("span", itemprop="datePublished").text)
+            except:
                 year = 0
-            else:
-                year = int(books[x][3])
-            datas.append(Book(author, name, year, "", "", "", 2000))
-        return datas
+            books.append(Book(author, name, year, "", "", "", 2000))
+        return books
