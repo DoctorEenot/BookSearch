@@ -46,9 +46,12 @@ class JivoeSlovo(SearchEngine):
         except:
             book_name = ""
         author = ""
-        for data in page.find("table", class_="short-attr-table").find_all("tbody"):
-            if data.find("td", class_="left").find("span").text == "Автор":
-                author = data.find("td", class_="right").find("span").text
+        try:
+            for data in page.find("table", class_="short-attr-table").find_all("tbody"):
+                if data.find("td", class_="left").find("span").text == "Автор":
+                    author = data.find("td", class_="right").find("span").text
+        except:
+            pass
         try:
             description = " ".join(page.find('div', itemprop="description").text.split())
         except:
