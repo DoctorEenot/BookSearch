@@ -4,18 +4,26 @@ import time
 import sys
 import os
 from .yandex_image_search import ImageSearcher
-from PIL import Image, ExifTags
+from PIL import Image
 from .labirint import Labirint
 from .wildberries import Wildberries
-from .livelib import Livelib
+from .rusneb import RusNeb
+# from .livelib import Livelib
 import glob
 
 import csv
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from .book import Book
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pathlib
+
+# Tuple[engine, max_workers]
+SEARCH_ENGINES = [
+    (Labirint, 4),
+    (Wildberries, 4),
+    (RusNeb, 10)
+]
 
 COVERS_FOLDER = "./covers"
 
@@ -61,83 +69,69 @@ def read_names_from_csv(file: str) -> List[str]:
     return book_names
 
 
-def get_all_books(books_names: List[Tuple[str, str]], covers: List[str]) -> List[List[Book]]:
+def get_all_books(books_names: List[List[str]], covers: List[str]) -> List[List[Book]]:
+    global SEARCH_ENGINES
+
     books = [[] for _ in range(len(books_names))]
-    futures = {}
 
-    logging.info("Searching books on Labirint")
-    not_found: int = 0
-    not_found_indexes: List[Tuple[int, int]] = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        # start threads
-        for index, names in enumerate(books_names):
-            cover = covers[index]
-            for name_index, name in enumerate(names):
+    # Dict[book_name, [cover_names,book_index]]
+    book_name_covers_map: Dict[str, List[Tuple[str, int]]] = {}
+    for book_index, names_cover in enumerate(zip(books_names, covers)):
+        names, cover = names_cover
+        for _, book_name in enumerate(names):
+
+            book_data = book_name_covers_map.get(
+                book_name, [])
+
+            book_data.append((cover, book_index))
+
+            book_name_covers_map[book_name] = book_data
+
+    logging.info("Searching books in searching engines")
+
+    logging.info(f"Total book names supplied: {len(book_name_covers_map)}")
+    for engine, max_workers in SEARCH_ENGINES:
+        futures = {}
+        logging.info(f"Active engine: {engine.__name__}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for book_name, mapped_covers in list(book_name_covers_map.items()):
+
+                book_name_covers_map.pop(book_name)
+
                 futures[executor.submit(
-                    Labirint.search_book, name, cover, 1)] = (index, name_index)
+                        engine.search_book, book_name, '', 1)] = (book_name, mapped_covers)
 
-        for future in as_completed(futures):
-            index, name_index = futures[future]
-            try:
-                data: List[Book] = future.result()
-            except Exception as exc:
-                not_found += 1
-                logging.error("Error on a thread", exc_info=exc)
-                not_found_indexes.append((index, name_index))
+            for future in as_completed(futures):
+                book_name, mapped_covers = futures[future]
+
+                try:
+                    data: List[Book] = future.result()
+                except Exception as exc:
+                    logging.error("Error on a thread", exc_info=exc)
+                    book_name_covers_map[book_name] = mapped_covers
+                else:
+                    if data is None or len(data) == 0:
+                        book_name_covers_map[book_name] = mapped_covers
+                        continue
+
+                    for book in data:
+                        for cover, book_index in mapped_covers:
+                            book.cover = cover
+                            books[book_index].append(book)
+
+        logging.info(f"Books left: {len(book_name_covers_map)}")
+
+    # not found
+    for book_name, mapped_covers in list(book_name_covers_map.items()):
+        for cover, book_index in mapped_covers:
+            if cover != '':
+                books[book_index].append(
+                    Book(cover, "NOT FOUND", 0, '', '', "", 0))
             else:
-                if data is None or len(data) == 0:
-                    not_found += 1
-                    not_found_indexes.append((index, name_index))
-                    continue
-                for book in data:
-                    books[index].append(book)
+                books[book_index].append(
+                    Book(book_name, "NOT FOUND", 0, '', '', "", 0))
 
-    if not_found == 0:
-        return books
-
-    logging.warning(f"Couldn't find {not_found} books on Labirint")
-
-    logging.info("Searching books on Wildberries")
-
-    futures = {}
-    not_found = 0
-
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        # start threads
-        for index, name_index in not_found_indexes:
-            cover = covers[index]
-            futures[executor.submit(
-                Wildberries.search_book, books_names[index][name_index], cover, 1)] = (index, name_index)
-
-        not_found_indexes = []
-
-        for future in as_completed(futures):
-            index, name_index = futures[future]
-            try:
-                data: List[Book] = future.result()
-            except Exception as exc:
-                not_found += 1
-                logging.error("Error on a thread", exc_info=exc)
-            else:
-                if data is None or len(data) == 0:
-                    not_found += 1
-                    not_found_indexes.append((index, name_index))
-                    continue
-                for book in data:
-                    books[index].append(book)
-
-    if not_found == 0:
-        return books
-
-    for index, name_index in not_found_indexes:
-        if covers[index] != '':
-            books[index].append(
-                Book(covers[index], "NOT FOUND", 0, '', '', "", 0))
-        else:
-            books[index].append(
-                Book(books_names[index][name_index], "NOT FOUND", 0, '', '', "", 0))
-
-    logging.warning(f"Couldn't find {not_found} books on Wildberries")
+    logging.info(f"Not found total: {len(book_name_covers_map)}")
 
     return books
 
@@ -181,7 +175,7 @@ def main():
 
         name1, name2 = searcher.search_image(f"./covers/{file}")
 
-        logging.info(f"Search by cover returned: {name1} | {name2}")
+        logging.debug(f"Search by cover returned: {name1} | {name2}")
 
         name2, name3 = name2
         to_append = []
@@ -221,6 +215,8 @@ def main():
 
             to_search = to_search + ' ' + name2
             to_append.append(to_search)
+
+        to_append = list(set(to_append))  # remove duplicates
 
         files_index += 1
         books_names.append(to_append)

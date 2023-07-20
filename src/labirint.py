@@ -30,12 +30,6 @@ class Labirint(SearchEngine):
             except:
                 # break
                 pass
-        # try:
-        #     for data in response.iter_content(chunk_size=1024):
-        #         page_raw += data
-        # except:
-        #     pass
-        # page_raw = page_raw.decode('utf-8')
 
         if response.status_code != 200 or len(page_raw) == 0:
             raise Exception("Response status is not 200")

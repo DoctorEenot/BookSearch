@@ -18,7 +18,8 @@ BASKETS = [
     (1116, 1169),  # 53
     (1170, 1313),  # 143
     (1314, 1601),  # 287
-    (1602, 1655)  # 53
+    (1602, 1655),  # 53
+    (1656, 1919)
 ]
 
 
@@ -34,7 +35,7 @@ class Wildberries(SearchEngine):
         for index, limits in enumerate(BASKETS):
             if vol >= limits[0] and vol <= limits[1]:
                 return f"https://basket-{index+1:02d}.wb.ru"
-        return f"https://basket-{len(BASKETS)}.wb.ru"
+        return f"https://basket-{len(BASKETS)+1}.wb.ru"
 
     def get_vol_part(id: int) -> Tuple[int, int]:
         return (id//100000, id//1000)
@@ -55,7 +56,8 @@ class Wildberries(SearchEngine):
             request_url, headers=headers)
 
         if response.status_code != 200:
-            raise Exception("Response status is not 200")
+            raise Exception(
+                f"Response status is not 200, but: {response.status_code}")
 
         to_return = []
 
@@ -79,12 +81,17 @@ class Wildberries(SearchEngine):
             )
 
             if response.status_code != 200:
-                raise Exception("Response status is not 200")
+                raise Exception(
+                    f"Response status is not 200, but: {response.status_code}. Probably wrong basket.")
 
             card = response.json()
 
             price = int(product['priceU'])/100
-            book_name = card['imt_name']
+
+            try:
+                book_name = card['imt_name']
+            except KeyError:
+                continue
 
             options: List[Dict[str, str]] = []
             try:
