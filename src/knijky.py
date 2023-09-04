@@ -49,7 +49,7 @@ class Knijky(SearchEngine):
 
         return books
 
-    def __format_text(text):
+    def __format_text(text: str) -> str:
         return text.replace('\n', '').replace('\t', '').replace('   ', '').replace("  ", " ").strip()
 
     def __get_book(session: requests.Session, url: str, headers: Headers, cover: str) -> Book:
